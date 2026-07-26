@@ -1,0 +1,97 @@
+# =====================================
+# AI Assistant Files (Claude)
+# =====================================
+.claude/
+CLAUDE.md
+.superpowers/
+
+# =====================================
+# Environment Variables & Secrets
+# =====================================
+.env
+.env.*
+!.env.example
+
+# =====================================
+# Python
+# =====================================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyre/
+.pytype/
+
+.coverage
+.coverage.*
+htmlcov/
+
+venv/
+.venv/
+env/
+ENV/
+
+dist/
+build/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# =====================================
+# Node.js / Frontend
+# =====================================
+node_modules/
+.next/
+dist/
+build/
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# =====================================
+# Evaluation Outputs
+# =====================================
+eval/reports/
+
+# =====================================
+# Documentation (Private)
+# =====================================
+docs/
+
+# =====================================
+# IDEs
+# =====================================
+.vscode/
+.idea/
+
+# =====================================
+# Logs
+# =====================================
+*.log
+logs/
+
+# =====================================
+# Databases
+# =====================================
+*.db
+*.sqlite3
+
+# =====================================
+# Temporary Files
+# =====================================
+tmp/
+temp/
+.cache/
+
+# =====================================
+# OS Files
+# =====================================
+.DS_Store
+Thumbs.db
+desktop.ini
