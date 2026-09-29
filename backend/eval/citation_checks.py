@@ -24,9 +24,22 @@ def cited_ids(answer: str) -> list[int]:
     return [int(x) for m in CITE.findall(answer) for x in m.split(",")]
 
 
+_BULLET = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+")
+_HEADING = re.compile(r"^\s*(?:#+\s*|\*\*[^*]+\*\*\s*:?\s*$)")
+
+
 def sentences(answer: str) -> list[str]:
-    text = re.sub(r"\s+", " ", answer.replace("\n", " ")).strip()
-    return [s for s in _SENTENCE.split(text) if s]
+    """Split into claim-sized units. Lines first (each bullet is its own
+    claim; markdown headings are dropped), then sentences within a line.
+    Flattening newlines first merged whole bullet lists into one "sentence",
+    which hid unsupported bullets from the claim-support review."""
+    out = []
+    for line in answer.splitlines():
+        if not line.strip() or _HEADING.match(line):
+            continue
+        line = _BULLET.sub("", line).replace("**", "").strip()
+        out += [s.strip() for s in _SENTENCE.split(line) if s.strip()]
+    return out
 
 
 def check_citations(answer: str, sources: list[CitedSource]) -> list[Finding]:

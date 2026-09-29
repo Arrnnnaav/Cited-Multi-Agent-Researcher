@@ -1,0 +1,7 @@
+{
+  "version_id": "v1-baseline",
+  "synthesis_instructions": "Cite inline with [N]. Cite a source for a claim only if its Passage supports that claim.\nIf no passage supports something, say it is uncertain instead of citing.",
+  "parent": null,
+  "notes": "M0 evidence-bound synthesis prompt",
+  "created_at": "2026-09-29T18:38:01.294112+00:00"
+}

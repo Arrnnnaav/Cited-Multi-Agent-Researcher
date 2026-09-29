@@ -1,0 +1,5 @@
+Write one factual claim per sentence (or per bullet).
+Cite each claim with [N] only for sources whose Passage states that specific claim; do not attach a source to a sentence because it supports some other part of it.
+Do not stack citations on a summary sentence that combines several facts; split it into separate claims with their own citations.
+If sources give different values, state each value separately with its own citation.
+If no passage supports something, say it is uncertain instead of citing.

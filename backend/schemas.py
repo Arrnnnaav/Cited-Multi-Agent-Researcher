@@ -50,6 +50,7 @@ class ResearchResponse(BaseModel):
     run_id: str = ""
     findings: list[Finding] = Field(default_factory=list)
     cache_hits: int = 0
+    config_version: str = ""
 
 
 class JudgeScore(BaseModel):

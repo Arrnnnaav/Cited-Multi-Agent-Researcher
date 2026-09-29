@@ -37,7 +37,7 @@ Query → OrchestratorAgent
 - **Eval job queue on a Redis Stream:** `POST /eval/run` returns 202 with a job ID (it used to be a `GET` that ran ten live queries inside the request). `python -m backend.worker` consumes jobs with retries and a dead-letter stream. Poll `GET /eval/jobs/{id}`.
 
 **Pluggable providers.**
-- **LLM:** `LLM_PROVIDER=gemini` (google-genai SDK) or `openai_compat`, which covers any OpenAI-compatible gateway (OpenRouter free models, NVIDIA NIM). Both share the same failover rules: a rate-limited model is parked in Redis for 60s, a missing or retired model for a day, and auth errors are raised instead of swallowed.
+- **LLM:** `LLM_PROVIDER=gemini` (google-genai SDK) or `openai_compat`. With `openai_compat`, NVIDIA NIM free models are tried first and OpenRouter `:free` models are the fallback. The failover rules: a rate-limited model is parked in Redis for 60s, a missing or retired model for a day, and an auth error skips that whole endpoint.
 - **Search:** `SEARCH_PROVIDER=tavily` returns the extracted page text for each URL. Every citation is then checked against text that really came from that source, and the search step needs no LLM call. If Tavily fails, it falls back to Gemini grounding when a Google key is set. Cache keys include the provider, so results from one provider are never served as the other's.
 
 `GET /metrics` returns cache hit/miss, quota-exhaustion and rate-limit-wait counters.
@@ -45,6 +45,51 @@ Query → OrchestratorAgent
 **Live check (29 Sep 2026).**
 - **Grounding.** With the current Gemini models, `google_search` grounding through the deprecated `google-generativeai` SDK returned no web chunks for any of 3 test queries. v1 would have shown the model's own text as a citation. v2 labelled every source `model_only`, and the checker flagged all 4 completed answers as `cites_model_only`. The Gemini calls now use the supported `google-genai` SDK: a native async client, `google_search` grounding and typed errors, with 429 and 404 both falling through the model chain. A live re-check of grounding is pending until the key's daily free-tier quota resets; the 29 Sep runs used it up.
 - **Retired models.** The run also showed that a retired model (404 `NotFound`) did not fall through the failover chain. It now does, and the model is marked unavailable in Redis for every worker.
+
+**Live check (30 Sep 2026): Tavily + NIM, free tiers only** (`eval/live_v3_run.json`). Each of 3 queries was run twice.
+- **Grounding:** 66 of 66 sources carry real page text, and there were 0 error-level citation findings.
+- **Repeat queries:** all 7 searches were served from the Redis cache, cutting total time from 67.0s to 29.5s (56%). A repeated single-fact query went from 17.4s to 1.2s. The query-plan cache is what makes this work: LLM decomposition otherwise rewords the sub-questions on every run.
+- **Failover:** NIM's primary model failed once during the run and `gpt-oss-20b` answered instead.
+
+## v3: evaluation and one improvement cycle (plan M2–M4)
+
+**Frozen, versioned cases** (`eval/cases/cases.jsonl`, built once by `python -m backend.eval.snapshot`). 13 cases, each storing its query plan and the Tavily evidence for every sub-question:
+
+| Split | Cases | Purpose |
+|---|---|---|
+| dev | 3 | The only split a proposal may cite |
+| promotion | 5 | Held out; a candidate is judged on these |
+| regression | 3 | Previously good behaviour that must not get worse |
+| challenge | 2 | Unanswerable query; prompt injection planted in a source passage |
+
+Expected facts are any-of string groups, checked deterministically. A leakage check rejects the same query appearing in two splits.
+
+**Replay.** `orchestrator.run(..., config=, plan=, search_fn=)` runs the real pipeline on frozen evidence, so a baseline and a candidate differ only in their config version.
+
+**Claim-support review** (`backend/eval/claim_support.py`, rubric `support-v1`). Every cited sentence or bullet is a claim. One LLM call per answer labels each claim supported, contradicted, insufficient or uncertain, judged only against the passages it cites. It is **uncalibrated**: `python -m backend.eval.calibrate export` writes claims for a person to label, and `score` then reports agreement and Cohen's κ. Until that is done, the reviewer is one signal, not a gate on its own.
+
+**Versioning** (`backend/versioning.py`). Versions are immutable and content-hashed (`configs/versions/`). The active pointer (`configs/active.json`) is a compare-and-swap that is replaced atomically. Each run reads its config once, so a promotion landing mid-request cannot change that request. Promotions and rollbacks are appended to `configs/promotions.jsonl`. Only the synthesis instructions are candidate-editable; the rubric is not.
+
+**Loop CLI** (`python -m backend.selfimprove.cli`): `status`, `failures` (dev only), `propose`, `diff`, `evaluate` (held-out splits plus an A/A baseline repeat), `decide --promote|--reject --by NAME`, `rollback`, `history`. Promotion is refused if the candidate changed since it was evaluated, or if the active version is no longer the one it was evaluated against. There are no HTTP admin routes.
+
+**First cycle (30 Sep 2026), result: no promotion.**
+1. **Failures on dev with the baseline:** 2 unsupported citations, both "bundled" sentences that combine several facts and stack citations such as [2][6][7], where each passage supports only part of the sentence.
+2. **Proposal `p1-atomic-citations`:** one claim per sentence, cite only sources whose passage states that claim, and give conflicting values separately.
+3. **Held-out evaluation** (`eval/results/evaluations/93c61d360e.json`):
+
+| | Claims | Unsupported | Rate | Fact recall | Challenge failures |
+|---|---|---|---|---|---|
+| baseline `v1` | 32 | 3 | 9.4% | 1.00 | 0 |
+| candidate `v2` | 76 | 7 | 9.2% | 1.00 | 0 |
+| baseline repeated (A/A) | 34 | 5 | 14.7% | 1.00 | 0 |
+
+The candidate splits answers into 2.4× more claims, but its unsupported rate is unchanged. The baseline repeated against itself moved from 9.4% to 14.7% and flipped 5 of 10 per-case verdicts. On 10 held-out cases, run-to-run noise is larger than the effect being tested, so the gate recommends rejecting the candidate.
+
+Two changes the evaluation forced along the way:
+- The claim extractor used to merge bullet lists into a single claim, which hid unsupported bullets from review. It now splits per line and per sentence.
+- One hand-written expected fact was too literal and was revised.
+
+Known limit: per-case verdicts compare unsupported *counts*, which penalizes candidates that write more, smaller claims. It stays as is for this cycle, since changing a metric after seeing the result would be moving the goalposts. The next steps are more cases and human-labelled calibration.
 
 ## Setup
 

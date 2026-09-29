@@ -13,6 +13,7 @@ os.environ["TAVILY_API_KEY"] = ""
 os.environ["OPENAI_COMPAT_API_KEY"] = ""
 os.environ["NVIDIA_API_KEY"] = ""
 os.environ["TRACE_DB"] = os.path.join(tempfile.mkdtemp(), "runs.db")
+os.environ["CONFIG_ROOT"] = tempfile.mkdtemp()  # versions/active pointer
 
 
 @pytest.fixture(autouse=True)

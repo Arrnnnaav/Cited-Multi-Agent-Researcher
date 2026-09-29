@@ -2,9 +2,9 @@ import asyncio
 import json
 import time
 import uuid
-from typing import Literal
+from typing import Awaitable, Callable, Literal
 
-from backend import records, redis_layer
+from backend import records, redis_layer, versioning
 from backend import llm
 from backend.agents import _gemini, citation_agent, search_agent, synthesis_agent
 from backend.config import PIPELINE_VERSION, SUBAGENT_CAP
@@ -56,14 +56,29 @@ Query: {query}""",
     return parsed
 
 
-async def run(query: str, trace: bool = True) -> ResearchResponse:
+SearchFn = Callable[[str], Awaitable[tuple[list, bool]]]
+
+
+async def run(
+    query: str,
+    trace: bool = True,
+    *,
+    config: versioning.ConfigVersion | None = None,
+    plan: dict | None = None,
+    search_fn: SearchFn | None = None,
+) -> ResearchResponse:
+    """Production callers pass only `query`. Evaluation replays pass a
+    specific `config` version, a frozen `plan` (query_type + sub_questions)
+    and a `search_fn` serving frozen evidence, so two versions can be
+    compared on identical inputs."""
     start = time.monotonic()
     run_id = uuid.uuid4().hex[:16]
+    config = config or versioning.active()  # read once: one version per run
     calls: list[dict] = []
     token = _gemini.call_log.set(calls)
     stages: dict[str, int] = {}
-    rec = {"run_id": run_id, "config_version": PIPELINE_VERSION, "query": query,
-           "model_calls": calls, "stages": stages, "status": "error"}  # fmt: skip
+    rec = {"run_id": run_id, "config_version": f"{PIPELINE_VERSION}/{config.label}",
+           "query": query, "model_calls": calls, "stages": stages, "status": "error"}  # fmt: skip
 
     def mark(name: str, t0: float) -> None:
         stages[name] = int((time.monotonic() - t0) * 1000)
@@ -73,7 +88,7 @@ async def run(query: str, trace: bool = True) -> ResearchResponse:
         # LLM decomposition is not deterministic, so without this a repeated
         # query produces differently worded sub-questions and misses the
         # search cache.
-        plan = await redis_layer.plan_get(query, PIPELINE_VERSION)
+        plan = plan or await redis_layer.plan_get(query, PIPELINE_VERSION)
         if plan:
             query_type, sub_questions = plan["query_type"], plan["sub_questions"]
             stages["plan_cache_hit"] = 1
@@ -92,7 +107,7 @@ async def run(query: str, trace: bool = True) -> ResearchResponse:
 
         t0 = time.monotonic()
         searched = await asyncio.gather(
-            *[search_agent.run(q) for q in sub_questions[:n]]
+            *[(search_fn or search_agent.run)(q) for q in sub_questions[:n]]
         )
         mark("search", t0)
         raw_results = [r for results, _ in searched for r in results]
@@ -100,7 +115,7 @@ async def run(query: str, trace: bool = True) -> ResearchResponse:
 
         sources = citation_agent.run(raw_results)
         t0 = time.monotonic()
-        answer = await synthesis_agent.run(query, sources)
+        answer = await synthesis_agent.run(query, sources, config.synthesis_instructions)
         mark("synthesis", t0)
         findings = check_citations(answer, sources)
 
@@ -119,6 +134,7 @@ async def run(query: str, trace: bool = True) -> ResearchResponse:
             run_id=run_id,
             findings=findings,
             cache_hits=cache_hits,
+            config_version=config.label,
         )
     except Exception as e:
         rec.update(error=f"{type(e).__name__}: {e}"[:500],

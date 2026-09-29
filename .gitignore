@@ -95,3 +95,5 @@ temp/
 .DS_Store
 Thumbs.db
 desktop.ini
+# Earlier self-improvement draft (local only, superseded by backend/selfimprove)
+backend/improvement/

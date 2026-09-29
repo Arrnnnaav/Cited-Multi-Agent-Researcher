@@ -1,0 +1,7 @@
+{
+  "version_id": "v2-atomic-citations",
+  "synthesis_instructions": "Write one factual claim per sentence (or per bullet).\nCite each claim with [N] only for sources whose Passage states that specific claim; do not attach a source to a sentence because it supports some other part of it.\nDo not stack citations on a summary sentence that combines several facts; split it into separate claims with their own citations.\nIf sources give different values, state each value separately with its own citation.\nIf no passage supports something, say it is uncertain instead of citing.",
+  "parent": "v1-baseline",
+  "notes": "candidate for p1-atomic-citations",
+  "created_at": "2026-09-29T18:44:21.354588+00:00"
+}

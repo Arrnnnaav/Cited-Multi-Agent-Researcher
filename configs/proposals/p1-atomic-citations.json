@@ -1,0 +1,19 @@
+{
+  "proposal_id": "p1-atomic-citations",
+  "target_failure": "unsupported_citation",
+  "dev_case_ids": [
+    "dev-everest-boil",
+    "dev-tcp-udp"
+  ],
+  "change_surface": "synthesis_instructions",
+  "from_version": "v1-baseline",
+  "candidate_version": "v2-atomic-citations",
+  "rationale": "Both dev failures are bundled citations: one sentence combines several facts and cites sources that each support only part of it.",
+  "predicted_benefit": "Fewer insufficient/contradicted claims on held-out cases",
+  "predicted_risk": "Longer, choppier answers; fact recall could drop if claims are split and some are lost",
+  "status": "evaluated",
+  "evaluation_id": "93c61d360e",
+  "evaluated_candidate_hash": "03c8249c31479267",
+  "decision": null,
+  "created_at": "2026-09-29T18:44:21.356592+00:00"
+}
