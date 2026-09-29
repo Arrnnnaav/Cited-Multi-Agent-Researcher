@@ -11,9 +11,30 @@
   "rationale": "Both dev failures are bundled citations: one sentence combines several facts and cites sources that each support only part of it.",
   "predicted_benefit": "Fewer insufficient/contradicted claims on held-out cases",
   "predicted_risk": "Longer, choppier answers; fact recall could drop if claims are split and some are lost",
-  "status": "evaluated",
+  "status": "rejected",
   "evaluation_id": "93c61d360e",
   "evaluated_candidate_hash": "03c8249c31479267",
-  "decision": null,
+  "decision": {
+    "action": "reject",
+    "actor": "arnav",
+    "reason": "within A/A noise",
+    "evidence": {
+      "evaluation_id": "93c61d360e",
+      "gate": {
+        "recommend_promotion": false,
+        "reasons": [
+          "unsupported claims did not decrease",
+          "4 per-case losses need human inspection",
+          "net wins (-3) do not exceed A/A noise (5)"
+        ]
+      },
+      "verdicts": {
+        "win": 1,
+        "loss": 4,
+        "tie": 5
+      }
+    },
+    "at": "2026-09-29T23:50:44.145311+00:00"
+  },
   "created_at": "2026-09-29T18:44:21.356592+00:00"
 }
