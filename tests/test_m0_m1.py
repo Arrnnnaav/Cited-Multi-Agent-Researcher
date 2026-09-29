@@ -183,3 +183,20 @@ def test_feedback_endpoint_and_eval_requires_redis():
     assert client.post("/feedback", json={"run_id": "missing"}).status_code == 404
     assert client.post("/eval/run").status_code == 503  # Redis disabled in tests
     assert client.get("/eval/run").status_code == 405  # no longer a GET side effect
+
+
+async def test_retired_model_falls_through_and_is_skipped(fake_redis, monkeypatch):
+    from google.api_core.exceptions import NotFound
+
+    monkeypatch.setattr(_gemini, "GEMINI_MODELS", ["old", "new"])
+
+    def make(name):
+        m = MagicMock()
+        if name == "old":
+            m.generate_content.side_effect = NotFound("model retired")
+        else:
+            m.generate_content.return_value = "ok"
+        return m
+
+    assert await _gemini.generate(make, "p") == "ok"
+    assert await redis_layer.is_exhausted("old")

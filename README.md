@@ -38,6 +38,10 @@ Query → OrchestratorAgent
 
 `GET /metrics` returns cache hit/miss, quota-exhaustion and rate-limit-wait counters.
 
+**Live check (29 Sep 2026).**
+- **Grounding.** With the current Gemini models, `google_search` grounding through the deprecated `google-generativeai` SDK returned no web chunks for any of 3 test queries. v1 would have shown the model's own text as a citation. v2 labelled every source `model_only`, and the checker flagged all 4 completed answers as `cites_model_only`. Migrating to the `google.genai` SDK is the next step.
+- **Retired models.** The run also showed that a retired model (404 `NotFound`) did not fall through the failover chain. It now does, and the model is marked unavailable in Redis for every worker.
+
 ## Setup
 
 ```bash

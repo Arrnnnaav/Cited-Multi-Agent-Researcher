@@ -25,7 +25,7 @@ import contextvars
 import time
 from typing import Callable
 
-from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable
+from google.api_core.exceptions import NotFound, ResourceExhausted, ServiceUnavailable
 
 from backend import redis_layer
 from backend.config import GEMINI_MODELS
@@ -80,6 +80,12 @@ async def generate(
                 _record(model_name, stage, started, "quota_exhausted")
                 await redis_layer.mark_exhausted(model_name)
                 break  # daily quota won't recover soon — try the next model
+            except NotFound as e:
+                # Model retired or not enabled for this key: skip it everywhere.
+                last_err = e
+                _record(model_name, stage, started, "model_not_found")
+                await redis_layer.mark_exhausted(model_name, ttl_s=24 * 3600)
+                break
             except ServiceUnavailable as e:
                 last_err = e
                 _record(model_name, stage, started, "unavailable")
