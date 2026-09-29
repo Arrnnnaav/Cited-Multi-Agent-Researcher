@@ -1,5 +1,5 @@
 from types import SimpleNamespace as NS
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fakeredis import FakeServer, aioredis
@@ -58,19 +58,19 @@ def fake_redis():
 
 async def test_second_identical_search_is_served_from_cache(fake_redis):
     resp = _response("Paris.", ["https://a.com"], [("Paris.", [0])])
-    with patch("backend.agents.search_agent.genai.GenerativeModel") as M:
-        M.return_value.generate_content.return_value = resp
+    with patch("backend.agents._gemini._call", new_callable=AsyncMock) as M:
+        M.return_value = resp
         first, hit1 = await run("capital of  France?")
         second, hit2 = await run("Capital of France?")  # normalized key
     assert (hit1, hit2) == (False, True)
-    assert M.return_value.generate_content.call_count == 1
+    assert M.call_count == 1
     assert second == first
     assert (await redis_layer.metrics()) == {"cache_miss": 1, "cache_hit": 1}
 
 
 async def test_model_only_results_are_not_cached(fake_redis):
-    with patch("backend.agents.search_agent.genai.GenerativeModel") as M:
-        M.return_value.generate_content.return_value = _response("guess", [])
+    with patch("backend.agents._gemini._call", new_callable=AsyncMock) as M:
+        M.return_value = _response("guess", [])
         await run("q")
         _, hit = await run("q")
     assert hit is False

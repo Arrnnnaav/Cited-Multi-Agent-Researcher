@@ -4,15 +4,11 @@ import time
 import uuid
 from typing import Literal
 
-import google.generativeai as genai
-
 from backend import records
 from backend.agents import _gemini, citation_agent, search_agent, synthesis_agent
-from backend.config import GOOGLE_API_KEY, PIPELINE_VERSION, SUBAGENT_CAP
+from backend.config import PIPELINE_VERSION, SUBAGENT_CAP
 from backend.eval.citation_checks import check_citations
 from backend.schemas import ResearchResponse
-
-genai.configure(api_key=GOOGLE_API_KEY)
 
 
 def _get_subagent_count(query_type: str, num_subtopics: int) -> int:
@@ -23,7 +19,6 @@ def _get_subagent_count(query_type: str, num_subtopics: int) -> int:
 
 async def _classify(query: str) -> Literal["fact", "comparison"]:
     response = await _gemini.generate(
-        lambda name: genai.GenerativeModel(model_name=name),
         f'Classify this query as exactly "fact" or "comparison" (one word only):\n{query}',
         stage="classify",
     )
@@ -35,7 +30,6 @@ async def _decompose(query: str, query_type: str) -> list[str]:
     if query_type == "fact":
         return [query]
     response = await _gemini.generate(
-        lambda name: genai.GenerativeModel(model_name=name),
         f"""Break this comparison query into sub-questions, one per comparison axis.
 Return a JSON array of strings only. No markdown.
 Query: {query}""",

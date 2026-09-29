@@ -1,12 +1,7 @@
 import json
 
-import google.generativeai as genai
-
-from backend.config import GOOGLE_API_KEY
 from backend.schemas import CitedSource, JudgeScore
 from backend.agents import _gemini
-
-genai.configure(api_key=GOOGLE_API_KEY)
 
 
 async def run(query: str, answer: str, sources: list[CitedSource]) -> JudgeScore:
@@ -26,9 +21,7 @@ Return ONLY valid JSON in this exact format:
 factuality: Are the claims factually accurate? (1.0 = fully accurate)
 citation_coverage: Are factual claims backed by [N] citations? (1.0 = every claim cited)"""
 
-    response = await _gemini.generate(
-        lambda name: genai.GenerativeModel(model_name=name), prompt
-    )
+    response = await _gemini.generate(prompt, stage="judge")
     text = response.text.strip()
     if text.startswith("```"):
         parts = text.split("```")

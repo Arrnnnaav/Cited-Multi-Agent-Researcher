@@ -1,10 +1,5 @@
-import google.generativeai as genai
-
 from backend.agents import _gemini
-from backend.config import GOOGLE_API_KEY
 from backend.schemas import CitedSource
-
-genai.configure(api_key=GOOGLE_API_KEY)
 
 _STATUS_NOTE = {
     "grounded": "",
@@ -33,7 +28,6 @@ Answer:"""
 
 async def run(query: str, sources: list[CitedSource]) -> str:
     response = await _gemini.generate(
-        lambda name: genai.GenerativeModel(model_name=name),
         build_prompt(query, sources),
         stage="synthesis",
     )

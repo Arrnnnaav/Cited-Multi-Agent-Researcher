@@ -1,19 +1,8 @@
-import google.generativeai as genai
-
 from backend import redis_layer
 from backend.agents import _gemini
-from backend.config import GOOGLE_API_KEY, PIPELINE_VERSION
+from backend.config import PIPELINE_VERSION
 from backend.evidence import join_passages, passages_by_chunk
 from backend.schemas import RawResult
-
-genai.configure(api_key=GOOGLE_API_KEY)
-
-
-def _search_tool() -> genai.protos.Tool:
-    # Gemini 2.0/2.5 grounding uses the `google_search` tool. The older
-    # `google_search_retrieval` (dynamic retrieval) is Gemini 1.5 only and the
-    # API rejects it for 2.x models.
-    return genai.protos.Tool(google_search=genai.protos.Tool.GoogleSearch())
 
 
 def parse_grounded(response) -> list[RawResult]:
@@ -45,7 +34,7 @@ def parse_grounded(response) -> list[RawResult]:
             RawResult(
                 url="",
                 title="Model answer (no web source)",
-                snippet=response.text[:500],
+                snippet=(response.text or "")[:500],
                 evidence_status="model_only",
             )
         )
@@ -58,13 +47,10 @@ async def run(sub_question: str) -> tuple[list[RawResult], bool]:
     if cached is not None:
         return [RawResult(**r) for r in cached], True
 
-    def make_model(name: str):
-        return genai.GenerativeModel(model_name=name, tools=[_search_tool()])
-
     response = await _gemini.generate(
-        make_model,
         f"Research this question and provide detailed findings:\n{sub_question}",
         stage="search",
+        search=True,
     )
     results = parse_grounded(response)
     # Model-only fallbacks are not cached: next time grounding may succeed.

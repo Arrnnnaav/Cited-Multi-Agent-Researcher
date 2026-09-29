@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fakeredis import FakeServer, aioredis
 from fastapi.testclient import TestClient
-from google.api_core.exceptions import ResourceExhausted
+from google.genai import errors
 
 from backend import jobs, records, redis_layer
 from backend.agents import _gemini, citation_agent
@@ -74,38 +74,54 @@ def fake_redis():
     yield r
 
 
-async def test_exhausted_model_is_skipped_by_every_later_call(fake_redis, monkeypatch):
-    monkeypatch.setattr(_gemini, "GEMINI_MODELS", ["m1", "m2"])
+def _fake_call(behaviour: dict):
+    """_gemini._call stand-in: model name -> exception to raise or value to return."""
     seen = []
 
-    def make(name):
-        seen.append(name)
-        m = MagicMock()
-        if name == "m1":
-            m.generate_content.side_effect = ResourceExhausted("quota")
-        else:
-            m.generate_content.return_value = "ok"
-        return m
+    async def call(model, prompt, config):
+        seen.append(model)
+        out = behaviour[model]
+        if isinstance(out, Exception):
+            raise out
+        return out
 
-    assert await _gemini.generate(make, "p") == "ok"
-    assert await _gemini.generate(make, "p") == "ok"
+    return call, seen
+
+
+async def test_exhausted_model_is_skipped_by_every_later_call(fake_redis, monkeypatch):
+    monkeypatch.setattr(_gemini, "GEMINI_MODELS", ["m1", "m2"])
+    call, seen = _fake_call({"m1": errors.ClientError(429, {"error": {"message": "quota"}}), "m2": "ok"})
+    monkeypatch.setattr(_gemini, "_call", call)
+    assert await _gemini.generate("p") == "ok"
+    assert await _gemini.generate("p") == "ok"
     assert seen == ["m1", "m2", "m2"]  # second call never touches m1
     assert await redis_layer.is_exhausted("m1")
 
 
 async def test_call_log_records_model_actually_used(fake_redis, monkeypatch):
     monkeypatch.setattr(_gemini, "GEMINI_MODELS", ["m1"])
+    call, _ = _fake_call({"m1": "ok"})
+    monkeypatch.setattr(_gemini, "_call", call)
     log: list = []
     token = _gemini.call_log.set(log)
-    m = MagicMock()
-    m.generate_content.return_value = "ok"
-    await _gemini.generate(lambda n: m, "p", stage="search")
+    await _gemini.generate("p", stage="search")
     _gemini.call_log.reset(token)
-    assert (
-        log[0]["model"] == "m1"
-        and log[0]["stage"] == "search"
-        and log[0]["outcome"] == "ok"
-    )
+    assert log[0]["model"] == "m1" and log[0]["stage"] == "search" and log[0]["outcome"] == "ok"
+
+
+async def test_search_calls_request_google_search_tool(monkeypatch):
+    monkeypatch.setattr(_gemini, "GEMINI_MODELS", ["m1"])
+    seen = {}
+
+    async def call(model, prompt, config):
+        seen["config"] = config
+        return "ok"
+
+    monkeypatch.setattr(_gemini, "_call", call)
+    await _gemini.generate("p", search=True)
+    assert seen["config"].tools[0].google_search is not None
+    await _gemini.generate("p")
+    assert seen["config"] is None
 
 
 async def test_rate_limit_counts_per_model_window(fake_redis):
@@ -186,17 +202,8 @@ def test_feedback_endpoint_and_eval_requires_redis():
 
 
 async def test_retired_model_falls_through_and_is_skipped(fake_redis, monkeypatch):
-    from google.api_core.exceptions import NotFound
-
     monkeypatch.setattr(_gemini, "GEMINI_MODELS", ["old", "new"])
-
-    def make(name):
-        m = MagicMock()
-        if name == "old":
-            m.generate_content.side_effect = NotFound("model retired")
-        else:
-            m.generate_content.return_value = "ok"
-        return m
-
-    assert await _gemini.generate(make, "p") == "ok"
+    call, _ = _fake_call({"old": errors.ClientError(404, {"error": {"message": "retired"}}), "new": "ok"})
+    monkeypatch.setattr(_gemini, "_call", call)
+    assert await _gemini.generate("p") == "ok"
     assert await redis_layer.is_exhausted("old")
