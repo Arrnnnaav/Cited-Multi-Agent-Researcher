@@ -16,6 +16,36 @@ GEMINI_MODELS: list[str] = [GEMINI_MODEL] + [
     if m.strip() and m.strip() != GEMINI_MODEL
 ]
 
+# LLM provider for classify/decompose/synthesis/judge:
+#   gemini         - google-genai SDK, GEMINI_MODELS chain
+#   openai_compat  - any OpenAI-compatible /chat/completions API
+#                    (OpenRouter: https://openrouter.ai/api/v1,
+#                     NVIDIA NIM: https://integrate.api.nvidia.com/v1)
+LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "gemini")
+OPENAI_COMPAT_BASE_URL: str = os.getenv(
+    "OPENAI_COMPAT_BASE_URL", "https://openrouter.ai/api/v1"
+)
+OPENAI_COMPAT_API_KEY: str = os.getenv("OPENAI_COMPAT_API_KEY", "")
+OPENAI_COMPAT_MODELS: list[str] = [
+    m.strip()
+    for m in os.getenv(
+        "OPENAI_COMPAT_MODELS",
+        "meta-llama/llama-3.3-70b-instruct:free,deepseek/deepseek-chat-v3-0324:free",
+    ).split(",")
+    if m.strip()
+]
+
+# Web search provider:
+#   tavily - Tavily Search API; returns extracted page text per URL (real
+#            per-source evidence). Falls back to Gemini grounding on failure
+#            when GOOGLE_API_KEY is set.
+#   gemini - Gemini google_search grounding.
+TAVILY_API_KEY: str = os.getenv("TAVILY_API_KEY", "")
+SEARCH_PROVIDER: str = os.getenv(
+    "SEARCH_PROVIDER", "tavily" if TAVILY_API_KEY else "gemini"
+)
+TAVILY_MAX_RESULTS: int = int(os.getenv("TAVILY_MAX_RESULTS", "5"))
+
 # Redis (optional): search cache, shared quota state, rate limit, eval job queue.
 REDIS_URL: str = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/1")
 SEARCH_CACHE_TTL_S: int = int(os.getenv("SEARCH_CACHE_TTL_S", str(24 * 3600)))
@@ -25,4 +55,4 @@ GEMINI_RPM: int = int(os.getenv("GEMINI_RPM", "15"))
 TRACE_DB: str = os.getenv("TRACE_DB", "data/runs.db")
 
 # Bump when search/extraction logic changes so stale cache entries are ignored.
-PIPELINE_VERSION: str = "v2-evidence"
+PIPELINE_VERSION: str = "v3-evidence"

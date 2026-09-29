@@ -36,6 +36,10 @@ Query → OrchestratorAgent
 - **Shared per-model rate window** (`GEMINI_RPM`): calls wait for the next window instead of collecting 429s.
 - **Eval job queue on a Redis Stream:** `POST /eval/run` returns 202 with a job ID (it used to be a `GET` that ran ten live queries inside the request). `python -m backend.worker` consumes jobs with retries and a dead-letter stream. Poll `GET /eval/jobs/{id}`.
 
+**Pluggable providers.**
+- **LLM:** `LLM_PROVIDER=gemini` (google-genai SDK) or `openai_compat`, which covers any OpenAI-compatible gateway (OpenRouter free models, NVIDIA NIM). Both share the same failover rules: a rate-limited model is parked in Redis for 60s, a missing or retired model for a day, and auth errors are raised instead of swallowed.
+- **Search:** `SEARCH_PROVIDER=tavily` returns the extracted page text for each URL. Every citation is then checked against text that really came from that source, and the search step needs no LLM call. If Tavily fails, it falls back to Gemini grounding when a Google key is set. Cache keys include the provider, so results from one provider are never served as the other's.
+
 `GET /metrics` returns cache hit/miss, quota-exhaustion and rate-limit-wait counters.
 
 **Live check (29 Sep 2026).**

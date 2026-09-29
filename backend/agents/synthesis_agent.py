@@ -1,4 +1,4 @@
-from backend.agents import _gemini
+from backend import llm
 from backend.schemas import CitedSource
 
 _STATUS_NOTE = {
@@ -27,8 +27,8 @@ Answer:"""
 
 
 async def run(query: str, sources: list[CitedSource]) -> str:
-    response = await _gemini.generate(
+    text = await llm.generate_text(
         build_prompt(query, sources),
         stage="synthesis",
     )
-    return response.text
+    return text

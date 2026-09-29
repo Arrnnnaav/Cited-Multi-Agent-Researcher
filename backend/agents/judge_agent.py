@@ -1,7 +1,7 @@
 import json
 
 from backend.schemas import CitedSource, JudgeScore
-from backend.agents import _gemini
+from backend import llm
 
 
 async def run(query: str, answer: str, sources: list[CitedSource]) -> JudgeScore:
@@ -21,8 +21,8 @@ Return ONLY valid JSON in this exact format:
 factuality: Are the claims factually accurate? (1.0 = fully accurate)
 citation_coverage: Are factual claims backed by [N] citations? (1.0 = every claim cited)"""
 
-    response = await _gemini.generate(prompt, stage="judge")
-    text = response.text.strip()
+    text = await llm.generate_text(prompt, stage="judge")
+    text = text.strip()
     if text.startswith("```"):
         parts = text.split("```")
         text = parts[1]

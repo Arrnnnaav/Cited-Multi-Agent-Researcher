@@ -5,6 +5,7 @@ import uuid
 from typing import Literal
 
 from backend import records
+from backend import llm
 from backend.agents import _gemini, citation_agent, search_agent, synthesis_agent
 from backend.config import PIPELINE_VERSION, SUBAGENT_CAP
 from backend.eval.citation_checks import check_citations
@@ -18,24 +19,24 @@ def _get_subagent_count(query_type: str, num_subtopics: int) -> int:
 
 
 async def _classify(query: str) -> Literal["fact", "comparison"]:
-    response = await _gemini.generate(
+    text = await llm.generate_text(
         f'Classify this query as exactly "fact" or "comparison" (one word only):\n{query}',
         stage="classify",
     )
-    text = response.text.strip().lower()
+    text = text.strip().lower()
     return "comparison" if "comparison" in text else "fact"
 
 
 async def _decompose(query: str, query_type: str) -> list[str]:
     if query_type == "fact":
         return [query]
-    response = await _gemini.generate(
+    text = await llm.generate_text(
         f"""Break this comparison query into sub-questions, one per comparison axis.
 Return a JSON array of strings only. No markdown.
 Query: {query}""",
         stage="decompose",
     )
-    text = response.text.strip()
+    text = text.strip()
     if text.startswith("```"):
         parts = text.split("```")
         text = parts[1]
