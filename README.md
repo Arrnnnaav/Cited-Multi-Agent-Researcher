@@ -22,6 +22,22 @@ Query → OrchestratorAgent
 | `SynthesisAgent` | Write cited answer with inline `[N]` refs |
 | `JudgeAgent` | Score factuality (0–1) + citation coverage (0–1) |
 
+## v2: evidence-checked citations, run traces, Redis
+
+**Evidence per source (M0).** v1 gave every grounding URL the same first 300 characters of the model's answer as its "snippet", so `[2]` appeared to support whatever `[1]` said. v2 inverts Gemini's `grounding_supports` (answer segment → chunk indices), so each source carries only the passages attributed to it. Each source is labelled `grounded`, `metadata_only` (retrieved, but no passage attributed) or `model_only` (no web source; never presented as a citation). Synthesis is told to cite only passages that support a claim.
+
+**Deterministic citation checks** (`backend/eval/citation_checks.py`, no LLM): invalid `[N]` IDs, citing model-only text, citing a source with no passage, duplicate sources after URL normalization (case, fragments, `utm_*`/tracking params, trailing slash), unused sources, and factual-looking sentences with no citation (a warning for review). Every response returns its findings, and the eval runner records them next to the judge scores.
+
+**Run traces + feedback (M1).** Each request gets a `run_id`. SQLite stores the query, classification, sub-questions, per-stage timings, every model call (the model that actually answered, latency, outcome), sources with evidence status, findings, cache hits and errors. `POST /feedback` joins ratings, issue categories and corrections to the run, and `GET /runs/{id}` returns the full trace. No judge call runs on the request path.
+
+**Redis (optional; the app degrades to no-ops without it):**
+- **Search cache:** keyed on normalized sub-question + pipeline version. A repeated sub-question skips the grounded search call. Model-only fallbacks are never cached.
+- **Shared quota state:** a model that returns a daily-quota 429 is marked exhausted in Redis, so every worker skips it instead of each one burning a call to rediscover it.
+- **Shared per-model rate window** (`GEMINI_RPM`): calls wait for the next window instead of collecting 429s.
+- **Eval job queue on a Redis Stream:** `POST /eval/run` returns 202 with a job ID (it used to be a `GET` that ran ten live queries inside the request). `python -m backend.worker` consumes jobs with retries and a dead-letter stream. Poll `GET /eval/jobs/{id}`.
+
+`GET /metrics` returns cache hit/miss, quota-exhaustion and rate-limit-wait counters.
+
 ## Setup
 
 ```bash

@@ -1,13 +1,16 @@
 import asyncio
 import json
 import time
+import uuid
 from typing import Literal
 
 import google.generativeai as genai
 
-from backend.config import GOOGLE_API_KEY, SUBAGENT_CAP
+from backend import records
+from backend.agents import _gemini, citation_agent, search_agent, synthesis_agent
+from backend.config import GOOGLE_API_KEY, PIPELINE_VERSION, SUBAGENT_CAP
+from backend.eval.citation_checks import check_citations
 from backend.schemas import ResearchResponse
-from backend.agents import citation_agent, search_agent, synthesis_agent, _gemini
 
 genai.configure(api_key=GOOGLE_API_KEY)
 
@@ -22,6 +25,7 @@ async def _classify(query: str) -> Literal["fact", "comparison"]:
     response = await _gemini.generate(
         lambda name: genai.GenerativeModel(model_name=name),
         f'Classify this query as exactly "fact" or "comparison" (one word only):\n{query}',
+        stage="classify",
     )
     text = response.text.strip().lower()
     return "comparison" if "comparison" in text else "fact"
@@ -35,6 +39,7 @@ async def _decompose(query: str, query_type: str) -> list[str]:
         f"""Break this comparison query into sub-questions, one per comparison axis.
 Return a JSON array of strings only. No markdown.
 Query: {query}""",
+        stage="decompose",
     )
     text = response.text.strip()
     if text.startswith("```"):
@@ -44,31 +49,78 @@ Query: {query}""",
             text = text[4:]
         text = text.strip()
     try:
-        return json.loads(text)
+        parsed = json.loads(text)
     except (json.JSONDecodeError, ValueError):
         return [query]
+    if (
+        not isinstance(parsed, list)
+        or not all(isinstance(q, str) for q in parsed)
+        or not parsed
+    ):
+        return [query]
+    return parsed
 
 
-async def run(query: str) -> ResearchResponse:
+async def run(query: str, trace: bool = True) -> ResearchResponse:
     start = time.monotonic()
+    run_id = uuid.uuid4().hex[:16]
+    calls: list[dict] = []
+    token = _gemini.call_log.set(calls)
+    stages: dict[str, int] = {}
+    rec = {"run_id": run_id, "config_version": PIPELINE_VERSION, "query": query,
+           "model_calls": calls, "stages": stages, "status": "error"}  # fmt: skip
 
-    query_type = await _classify(query)
-    sub_questions = await _decompose(query, query_type)
-    n = _get_subagent_count(query_type, len(sub_questions))
+    def mark(name: str, t0: float) -> None:
+        stages[name] = int((time.monotonic() - t0) * 1000)
 
-    raw_results_nested = await asyncio.gather(
-        *[search_agent.run(q) for q in sub_questions[:n]]
-    )
-    raw_results = [r for sublist in raw_results_nested for r in sublist]
+    try:
+        t0 = time.monotonic()
+        query_type = await _classify(query)
+        mark("classify", t0)
+        t0 = time.monotonic()
+        sub_questions = await _decompose(query, query_type)
+        mark("decompose", t0)
+        n = _get_subagent_count(query_type, len(sub_questions))
+        rec.update(query_type=query_type, subquestions=sub_questions[:n])
 
-    sources = citation_agent.run(raw_results)
-    answer = await synthesis_agent.run(query, sources)
+        t0 = time.monotonic()
+        searched = await asyncio.gather(
+            *[search_agent.run(q) for q in sub_questions[:n]]
+        )
+        mark("search", t0)
+        raw_results = [r for results, _ in searched for r in results]
+        cache_hits = sum(hit for _, hit in searched)
 
-    latency_ms = int((time.monotonic() - start) * 1000)
-    return ResearchResponse(
-        answer=answer,
-        sources=sources,
-        query_type=query_type,
-        subagents_used=n,
-        latency_ms=latency_ms,
-    )
+        sources = citation_agent.run(raw_results)
+        t0 = time.monotonic()
+        answer = await synthesis_agent.run(query, sources)
+        mark("synthesis", t0)
+        findings = check_citations(answer, sources)
+
+        latency_ms = int((time.monotonic() - start) * 1000)
+        rec.update(
+            sources=[s.model_dump() for s in sources], answer=answer,
+            findings=[f.model_dump() for f in findings], cache_hits=cache_hits,
+            latency_ms=latency_ms, status="ok",
+        )  # fmt: skip
+        return ResearchResponse(
+            answer=answer,
+            sources=sources,
+            query_type=query_type,
+            subagents_used=n,
+            latency_ms=latency_ms,
+            run_id=run_id,
+            findings=findings,
+            cache_hits=cache_hits,
+        )
+    except Exception as e:
+        rec.update(error=f"{type(e).__name__}: {e}"[:500],
+                   latency_ms=int((time.monotonic() - start) * 1000))  # fmt: skip
+        raise
+    finally:
+        _gemini.call_log.reset(token)
+        if trace:
+            try:
+                await records.save_run(rec)
+            except Exception:  # tracing must never break a request
+                pass

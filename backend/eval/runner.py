@@ -6,6 +6,7 @@ from jinja2 import Template
 from backend.agents import orchestrator
 from backend.agents.judge_agent import run as judge_run
 from backend.eval.test_queries import TEST_QUERIES
+from backend.eval.citation_checks import check_citations
 from backend.schemas import EvalResult
 
 REPORTS_DIR = Path("eval/reports")
@@ -23,6 +24,7 @@ async def run() -> list[EvalResult]:
                 answer=response.answer,
                 sources=response.sources,
                 scores=scores,
+                findings=check_citations(response.answer, response.sources),
             )
         )
     _write_report(results)

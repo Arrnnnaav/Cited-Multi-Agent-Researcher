@@ -1,62 +1,76 @@
+from types import SimpleNamespace as NS
 from unittest.mock import MagicMock, patch
+
 import pytest
+from fakeredis import FakeServer, aioredis
+
+from backend import redis_layer
+from backend.agents.search_agent import parse_grounded, run
 
 
-def _mock_response(text: str, urls: list[str] | None = None) -> MagicMock:
+def _response(
+    text: str, urls: list[str], supports: list[tuple[str, list[int]]] | None = None
+):
+    chunks = [NS(web=NS(uri=u, title=f"Page: {u}")) for u in urls]
+    sup = [
+        NS(segment=NS(text=t), grounding_chunk_indices=idx) for t, idx in supports or []
+    ]
+    meta = NS(grounding_chunks=chunks, grounding_supports=sup)
     resp = MagicMock()
     resp.text = text
-    if urls:
-        chunks = []
-        for url in urls:
-            chunk = MagicMock()
-            chunk.web.uri = url
-            chunk.web.title = f"Page: {url}"
-            chunks.append(chunk)
-        resp.candidates[0].grounding_metadata.grounding_chunks = chunks
-    else:
-        resp.candidates[0].grounding_metadata.grounding_chunks = []
+    resp.candidates = [NS(grounding_metadata=meta)]
     return resp
 
 
-@pytest.fixture(autouse=True)
-def patch_genai_types():
-    with patch(
-        "google.generativeai.types.GoogleSearchRetrieval",
-        MagicMock(),
-        create=True,
-    ):
-        with patch("google.generativeai.types.Tool", MagicMock(), create=True):
-            yield
+def test_each_source_gets_only_its_own_passages():
+    """Regression: previously every source got the same first 300 chars of the
+    answer as its snippet, so [2] 'supported' whatever [1] said."""
+    resp = _response(
+        "Paris is the capital. Lyon is the third largest city.",
+        ["https://a.com", "https://b.com"],
+        [("Paris is the capital.", [0]), ("Lyon is the third largest city.", [1])],
+    )
+    a, b = parse_grounded(resp)
+    assert a.snippet == "Paris is the capital." and a.evidence_status == "grounded"
+    assert b.snippet == "Lyon is the third largest city."
+    assert a.snippet != b.snippet
 
 
-from backend.agents.search_agent import run  # noqa: E402
+def test_source_without_attributed_passage_is_metadata_only():
+    resp = _response("x", ["https://a.com", "https://b.com"], [("Only A.", [0])])
+    a, b = parse_grounded(resp)
+    assert b.evidence_status == "metadata_only" and b.snippet == ""
 
 
-async def test_run_returns_results_from_grounding():
-    mock_resp = _mock_response("Paris is the capital.", ["https://example.com/france"])
-    with patch("backend.agents.search_agent.genai.GenerativeModel") as MockModel:
-        MockModel.return_value.generate_content.return_value = mock_resp
-        results = await run("What is the capital of France?")
-    assert len(results) == 1
-    assert results[0].url == "https://example.com/france"
-    assert results[0].title == "Page: https://example.com/france"
+def test_no_grounding_is_labelled_model_only_not_a_web_source():
+    resp = _response("Some knowledge about X.", [])
+    [r] = parse_grounded(resp)
+    assert r.url == "" and r.evidence_status == "model_only"
+    assert "Some knowledge" in r.snippet
 
 
-async def test_run_falls_back_when_no_grounding_chunks():
-    mock_resp = _mock_response("Some knowledge about X.")
-    mock_resp.candidates[0].grounding_metadata.grounding_chunks = []
-    with patch("backend.agents.search_agent.genai.GenerativeModel") as MockModel:
-        MockModel.return_value.generate_content.return_value = mock_resp
-        results = await run("What is X?")
-    assert len(results) == 1
-    assert results[0].url == ""
-    assert "Some knowledge" in results[0].snippet
+@pytest.fixture
+def fake_redis():
+    r = aioredis.FakeRedis(server=FakeServer(), decode_responses=True)
+    redis_layer.set_client(r)
+    yield r
 
 
-async def test_run_snippet_is_truncated_to_300_chars():
-    long_text = "A" * 500
-    mock_resp = _mock_response(long_text, ["https://a.com"])
-    with patch("backend.agents.search_agent.genai.GenerativeModel") as MockModel:
-        MockModel.return_value.generate_content.return_value = mock_resp
-        results = await run("Q?")
-    assert len(results[0].snippet) <= 300
+async def test_second_identical_search_is_served_from_cache(fake_redis):
+    resp = _response("Paris.", ["https://a.com"], [("Paris.", [0])])
+    with patch("backend.agents.search_agent.genai.GenerativeModel") as M:
+        M.return_value.generate_content.return_value = resp
+        first, hit1 = await run("capital of  France?")
+        second, hit2 = await run("Capital of France?")  # normalized key
+    assert (hit1, hit2) == (False, True)
+    assert M.return_value.generate_content.call_count == 1
+    assert second == first
+    assert (await redis_layer.metrics()) == {"cache_miss": 1, "cache_hit": 1}
+
+
+async def test_model_only_results_are_not_cached(fake_redis):
+    with patch("backend.agents.search_agent.genai.GenerativeModel") as M:
+        M.return_value.generate_content.return_value = _response("guess", [])
+        await run("q")
+        _, hit = await run("q")
+    assert hit is False
