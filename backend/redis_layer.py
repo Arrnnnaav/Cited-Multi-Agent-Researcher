@@ -117,3 +117,27 @@ async def metrics() -> dict[str, int]:
     if r is None:
         return {}
     return {k: int(v) for k, v in (await r.hgetall("research:metrics")).items()}
+
+
+def _plan_key(query: str, version: str) -> str:
+    norm = " ".join(query.lower().split())
+    return "research:plan:" + hashlib.sha256(f"{version}|{norm}".encode()).hexdigest()[:32]
+
+
+async def plan_get(query: str, version: str) -> dict | None:
+    r = await get_redis()
+    if r is None:
+        return None
+    raw = await r.get(_plan_key(query, version))
+    await r.hincrby("research:metrics", "plan_hit" if raw else "plan_miss", 1)
+    return json.loads(raw) if raw else None
+
+
+async def plan_set(query: str, version: str, query_type: str, sub_questions: list[str]) -> None:
+    r = await get_redis()
+    if r is not None:
+        await r.set(
+            _plan_key(query, version),
+            json.dumps({"query_type": query_type, "sub_questions": sub_questions}),
+            ex=SEARCH_CACHE_TTL_S,
+        )

@@ -1,0 +1,96 @@
+[
+  {
+    "round": 1,
+    "q": "When was the James Webb Space Telescope ",
+    "ms": 17405,
+    "cache_hits": 0,
+    "subqs": 1,
+    "sources": 5,
+    "grounded": 5,
+    "findings": {
+      "unused_source": 5,
+      "uncited_sentence": 1
+    },
+    "models": [
+      "nvidia/nemotron-3-super-120b-a12b",
+      "openai/gpt-oss-20b",
+      "tavily"
+    ]
+  },
+  {
+    "round": 1,
+    "q": "Compare PostgreSQL and MongoDB for trans",
+    "ms": 36968,
+    "cache_hits": 0,
+    "subqs": 5,
+    "sources": 23,
+    "grounded": 23,
+    "findings": {
+      "unused_source": 13
+    },
+    "models": [
+      "nvidia/nemotron-3-super-120b-a12b",
+      "tavily"
+    ]
+  },
+  {
+    "round": 1,
+    "q": "What is the boiling point of water at th",
+    "ms": 12655,
+    "cache_hits": 0,
+    "subqs": 1,
+    "sources": 5,
+    "grounded": 5,
+    "findings": {
+      "unused_source": 1
+    },
+    "models": [
+      "nvidia/nemotron-3-super-120b-a12b",
+      "tavily"
+    ]
+  },
+  {
+    "round": 2,
+    "q": "When was the James Webb Space Telescope ",
+    "ms": 1157,
+    "cache_hits": 1,
+    "subqs": 1,
+    "sources": 5,
+    "grounded": 5,
+    "findings": {
+      "unused_source": 4
+    },
+    "models": [
+      "nvidia/nemotron-3-super-120b-a12b"
+    ]
+  },
+  {
+    "round": 2,
+    "q": "Compare PostgreSQL and MongoDB for trans",
+    "ms": 23671,
+    "cache_hits": 5,
+    "subqs": 5,
+    "sources": 23,
+    "grounded": 23,
+    "findings": {
+      "unused_source": 14,
+      "uncited_sentence": 1
+    },
+    "models": [
+      "nvidia/nemotron-3-super-120b-a12b"
+    ]
+  },
+  {
+    "round": 2,
+    "q": "What is the boiling point of water at th",
+    "ms": 4639,
+    "cache_hits": 1,
+    "subqs": 1,
+    "sources": 5,
+    "grounded": 5,
+    "findings": {},
+    "models": [
+      "nvidia/nemotron-3-super-120b-a12b"
+    ]
+  }
+]

@@ -207,3 +207,18 @@ async def test_retired_model_falls_through_and_is_skipped(fake_redis, monkeypatc
     monkeypatch.setattr(_gemini, "_call", call)
     assert await _gemini.generate("p") == "ok"
     assert await redis_layer.is_exhausted("old")
+
+
+async def test_query_plan_is_cached_so_repeat_queries_reuse_searches(fake_redis):
+    from backend.agents import orchestrator
+
+    raw = [RawResult(url="https://a.com", title="A", snippet="p", evidence_status="grounded")]
+    classify = AsyncMock(return_value="comparison")
+    decompose = AsyncMock(return_value=["q1", "q2"])
+    with patch.object(orchestrator, "_classify", classify), \
+         patch.object(orchestrator, "_decompose", decompose), \
+         patch.object(orchestrator.search_agent, "run", AsyncMock(return_value=(raw, False))), \
+         patch.object(orchestrator.synthesis_agent, "run", AsyncMock(return_value="A [1].")):  # fmt: skip
+        await orchestrator.run("Compare X and Y")
+        await orchestrator.run("compare  x and y")
+    assert classify.await_count == 1 and decompose.await_count == 1

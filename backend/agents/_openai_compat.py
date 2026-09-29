@@ -1,10 +1,13 @@
 """OpenAI-compatible chat completions (OpenRouter, NVIDIA NIM, ...) with the
 same failover semantics as the Gemini helper.
 
-Free-tier models on these gateways are rate limited per minute, so a 429
-parks the model in Redis for a minute (not a day) and the next model in
-OPENAI_COMPAT_MODELS is tried. A 404/400 naming the model (retired or not
-available on this key) parks it for a day. 5xx retries with backoff.
+Routes are tried in order: NVIDIA NIM models first (if NVIDIA_API_KEY is set),
+then every model on the OPENAI_COMPAT_* endpoint (OpenRouter free models)
+as the fallback. Free-tier models on these gateways are rate limited
+per minute, so a 429 parks the model in Redis for a minute (not a day) and
+the next route is tried. A 404/400 naming the model (retired or not
+available on this key) parks it for a day. An auth error skips the rest of
+that endpoint. 5xx retries with backoff.
 """
 
 import asyncio
@@ -15,6 +18,10 @@ import httpx
 from backend import redis_layer
 from backend.agents._gemini import _record
 from backend.config import (
+    COMPAT_RPM,
+    NIM_BASE_URL,
+    NIM_MODELS,
+    NVIDIA_API_KEY,
     OPENAI_COMPAT_API_KEY,
     OPENAI_COMPAT_BASE_URL,
     OPENAI_COMPAT_MODELS,
@@ -36,10 +43,21 @@ class CompatError(RuntimeError):
         self.status = status
 
 
-async def _call(model: str, prompt: str) -> str:
+def routes(models: list[str] | None = None) -> list[tuple[str, str, str]]:
+    """(base_url, api_key, model) in failover order."""
+    fallback = [
+        (OPENAI_COMPAT_BASE_URL, OPENAI_COMPAT_API_KEY, m)
+        for m in (models or OPENAI_COMPAT_MODELS)
+    ]
+    if models is None and NVIDIA_API_KEY:
+        return [(NIM_BASE_URL, NVIDIA_API_KEY, m) for m in NIM_MODELS] + fallback
+    return fallback
+
+
+async def _call(base_url: str, api_key: str, model: str, prompt: str) -> str:
     r = await client().post(
-        f"{OPENAI_COMPAT_BASE_URL.rstrip('/')}/chat/completions",
-        headers={"Authorization": f"Bearer {OPENAI_COMPAT_API_KEY}"},
+        f"{base_url.rstrip('/')}/chat/completions",
+        headers={"Authorization": f"Bearer {api_key}"},
         json={
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
@@ -63,15 +81,16 @@ async def generate_text(
     base_delay: float = 2.0,
 ) -> str:
     last_err: Exception | None = None
-    for model in models or OPENAI_COMPAT_MODELS:
-        if await redis_layer.is_exhausted(model):
+    bad_endpoints: set[str] = set()
+    for base_url, api_key, model in routes(models):
+        if base_url in bad_endpoints or await redis_layer.is_exhausted(model):
             continue
         delay = base_delay
         for attempt in range(retries_per_model):
-            await redis_layer.acquire_rate_slot(model)
+            await redis_layer.acquire_rate_slot(model, rpm=COMPAT_RPM)
             started = time.perf_counter()
             try:
-                text = await _call(model, prompt)
+                text = await _call(base_url, api_key, model, prompt)
                 _record(model, stage, started, "ok")
                 return text
             except (CompatError, httpx.TransportError) as e:
@@ -87,7 +106,8 @@ async def generate_text(
                     break
                 if status in (401, 403):
                     _record(model, stage, started, "auth_error")
-                    raise
+                    bad_endpoints.add(base_url)  # bad key: skip this endpoint entirely
+                    break
                 _record(model, stage, started, "unavailable")
                 if attempt == retries_per_model - 1:
                     break

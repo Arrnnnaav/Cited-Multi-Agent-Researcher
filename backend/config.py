@@ -30,7 +30,20 @@ OPENAI_COMPAT_MODELS: list[str] = [
     m.strip()
     for m in os.getenv(
         "OPENAI_COMPAT_MODELS",
-        "meta-llama/llama-3.3-70b-instruct:free,deepseek/deepseek-chat-v3-0324:free",
+        "qwen/qwen3.8-27b:free,nvidia/nemotron-3-super-120b-a12b:free,google/gemma-4-31b-it:free",
+    ).split(",")
+    if m.strip()
+]
+
+# NVIDIA NIM: primary OpenAI-compatible endpoint (free models); OpenRouter free
+# models above are the fallback.
+NVIDIA_API_KEY: str = os.getenv("NVIDIA_API_KEY", "")
+NIM_BASE_URL: str = os.getenv("NIM_BASE_URL", "https://integrate.api.nvidia.com/v1")
+NIM_MODELS: list[str] = [
+    m.strip()
+    for m in os.getenv(
+        "NIM_MODELS",
+        "nvidia/nemotron-3-super-120b-a12b,openai/gpt-oss-20b,deepseek-ai/deepseek-v4.1-flash",
     ).split(",")
     if m.strip()
 ]
@@ -50,6 +63,8 @@ TAVILY_MAX_RESULTS: int = int(os.getenv("TAVILY_MAX_RESULTS", "5"))
 REDIS_URL: str = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/1")
 SEARCH_CACHE_TTL_S: int = int(os.getenv("SEARCH_CACHE_TTL_S", str(24 * 3600)))
 GEMINI_RPM: int = int(os.getenv("GEMINI_RPM", "15"))
+# NIM's free tier allows ~40 requests/minute per model; OpenRouter free ~20.
+COMPAT_RPM: int = int(os.getenv("COMPAT_RPM", "35"))
 
 # Run traces + feedback (SQLite).
 TRACE_DB: str = os.getenv("TRACE_DB", "data/runs.db")

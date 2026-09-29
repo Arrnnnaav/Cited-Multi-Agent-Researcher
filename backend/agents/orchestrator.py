@@ -4,7 +4,7 @@ import time
 import uuid
 from typing import Literal
 
-from backend import records
+from backend import records, redis_layer
 from backend import llm
 from backend.agents import _gemini, citation_agent, search_agent, synthesis_agent
 from backend.config import PIPELINE_VERSION, SUBAGENT_CAP
@@ -69,12 +69,24 @@ async def run(query: str, trace: bool = True) -> ResearchResponse:
         stages[name] = int((time.monotonic() - t0) * 1000)
 
     try:
-        t0 = time.monotonic()
-        query_type = await _classify(query)
-        mark("classify", t0)
-        t0 = time.monotonic()
-        sub_questions = await _decompose(query, query_type)
-        mark("decompose", t0)
+        # Query plan (classification + sub-questions) is cached per query:
+        # LLM decomposition is not deterministic, so without this a repeated
+        # query produces differently worded sub-questions and misses the
+        # search cache.
+        plan = await redis_layer.plan_get(query, PIPELINE_VERSION)
+        if plan:
+            query_type, sub_questions = plan["query_type"], plan["sub_questions"]
+            stages["plan_cache_hit"] = 1
+        else:
+            t0 = time.monotonic()
+            query_type = await _classify(query)
+            mark("classify", t0)
+            t0 = time.monotonic()
+            sub_questions = await _decompose(query, query_type)
+            mark("decompose", t0)
+            await redis_layer.plan_set(
+                query, PIPELINE_VERSION, query_type, sub_questions
+            )
         n = _get_subagent_count(query_type, len(sub_questions))
         rec.update(query_type=query_type, subquestions=sub_questions[:n])
 

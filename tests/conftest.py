@@ -3,7 +3,15 @@ import tempfile
 
 import pytest
 
-os.environ.setdefault("GOOGLE_API_KEY", "test-key")
+# Pin providers before backend.config loads .env (load_dotenv never
+# overrides variables that are already set), so unit tests never depend on,
+# or spend, the developer's real keys.
+os.environ["GOOGLE_API_KEY"] = "test-key"
+os.environ["LLM_PROVIDER"] = "gemini"
+os.environ["SEARCH_PROVIDER"] = "gemini"
+os.environ["TAVILY_API_KEY"] = ""
+os.environ["OPENAI_COMPAT_API_KEY"] = ""
+os.environ["NVIDIA_API_KEY"] = ""
 os.environ["TRACE_DB"] = os.path.join(tempfile.mkdtemp(), "runs.db")
 
 

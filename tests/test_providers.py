@@ -136,3 +136,12 @@ async def test_llm_dispatches_on_provider(monkeypatch):
     monkeypatch.setattr(llm, "LLM_PROVIDER", "openai_compat")
     monkeypatch.setattr(llm._openai_compat, "generate_text", compat)
     assert await llm.generate_text("p") == "compat"
+
+
+def test_nim_is_tried_before_openrouter(monkeypatch):
+    monkeypatch.setattr(_openai_compat, "NVIDIA_API_KEY", "nvapi-x")
+    monkeypatch.setattr(_openai_compat, "NIM_MODELS", ["meta/llama-3.3-70b-instruct"])
+    monkeypatch.setattr(_openai_compat, "OPENAI_COMPAT_MODELS", ["some/model:free"])
+    order = [(base.split("//")[1].split("/")[0], m) for base, _, m in _openai_compat.routes()]
+    assert order[0] == ("integrate.api.nvidia.com", "meta/llama-3.3-70b-instruct")
+    assert order[1][1] == "some/model:free"
